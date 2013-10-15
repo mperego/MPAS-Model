@@ -205,11 +205,11 @@ contains
 
       ! halo exchange arrays
       integer, dimension(:), pointer :: sendCellsArray, &
-                                     recvCellsArray, &
-                                     sendVerticesArray, &
-                                     recvVerticesArray, &
-                                     sendEdgesArray, &
-                                     recvEdgesArray
+                                        recvCellsArray, &
+                                        sendVerticesArray, &
+                                        recvVerticesArray, &
+                                        sendEdgesArray, &
+                                        recvEdgesArray
 
       err = 0
 
@@ -241,6 +241,10 @@ contains
 
 
       !build send and receive arrays using exchange_list
+      call array_from_exchange_list(block % mesh % indexToCellID, sendCellsArray, recvCellsArray)
+      call array_from_exchange_list(block % mesh % indexToEdgeID , sendEdgesArray, recvEdgesArray)
+      call array_from_exchange_list(block % mesh % indexToVertexID , sendVerticesArray, recvVerticesArray)
+
 !      call array_from_exchange_list(block % parinfo % verticesToSend, sendVerticesArray)
 !      call array_from_exchange_list(block % parinfo % verticesToRecv, recvVerticesArray)
 !      call array_from_exchange_list(block % parinfo % cellsToSend, sendCellsArray)
@@ -569,46 +573,221 @@ contains
 !> \date   3 October 2013
 !> \version SVN:$Id$
 !> \details
-!>  This routine converts the MPAS Exchange Lists to flat arrays for 
-!>  use by external dycores.
+!>  This routine converts the MPAS Exchange Lists (type mpas_multihalo_exchange_list)
+!>  to flat arrays for use by external dycores.
 !-----------------------------------------------------------------------
 
-   subroutine array_from_exchange_list(exlist, array)
+   subroutine array_from_exchange_list(field, sendArray, recvArray)
+      !-----------------------------------------------------------------
+      ! input variables
+      !-----------------------------------------------------------------
+      type (field1DInteger), pointer, intent(in) :: field   !< Input: the field that holds the MPAS exchange lists.
+      ! Any 1d integer fields will work, but it is suggested to use one of indexToCellID, indexToEdgeID, or IndexToVertexID
 
-     implicit none
+      !-----------------------------------------------------------------
+      ! input/output variables
+      !-----------------------------------------------------------------
+      integer, dimension(:), pointer :: sendArray !< Input/Output: the flat array of elements to send, should be unallocated on input
+      integer, dimension(:), pointer :: recvArray !< Input/Output: the flat array of elements to receive, should be unallocated on input
 
-     type (exchange_list), pointer, intent(in) :: exlist
-     type (exchange_list), pointer :: listPtr
+      !-----------------------------------------------------------------
+      ! output variables
+      !-----------------------------------------------------------------
+!      integer, intent(out) :: err !< Output: error flag
 
-     integer, dimension(:), pointer, intent(out) :: array
-     integer :: dataSize, offset, i
+      !-----------------------------------------------------------------
+      ! local variables
+      !-----------------------------------------------------------------
+      type (mpas_communication_list), pointer :: sendCommList, recvCommList  ! Communication lists that will be setup from mpas_multihalo_exchange_list's as an intermediate step to flat arrays
+      type (mpas_communication_list), pointer :: commListPtr  ! A temporary comm list pointer
+      integer :: nHaloLayers, iHalo
+      integer, dimension(:), pointer :: haloLayers  ! an array of halo layers, needed to setup comm lists - we want all of them
+      type (field1DInteger), pointer :: fieldCursor
+      integer :: nAdded, bufferOffset, i
+      type (mpas_exchange_list), pointer :: exchListPtr
 
-!     dataSize = 1 !in first position we will store the size of the vector
-!     listPtr => exlist
-!     do while (associated(listPtr))
-!       dataSize = dataSize + (listPtr % nlist) + 2
-!       listPtr => listPtr % next
-!     end do
 
-!     allocate(array(dataSize))
+      ! ========================================================================
+      ! Step 1: Generate communication lists from the mpas_multihalo_exchange_list's
+      !   (this step is written to be compatible with multiple blocks per processor,
+      !    even though that is not supported for external dycores.)
+      !   This is done because communication lists have the various halos collapsed
+      !   into a single list.
+      ! ========================================================================
 
-!     array(1) = dataSize;
-!     offset = 2;
-!     listPtr => exlist
-!     do while (associated(listPtr))
-!       array(offset) = listPtr % procID
-!       offset = offset + 1
-!       array(offset) = listPtr % nlist
-!       do i=1,listPtr % nlist
-!         array(i+offset) = listPtr % list(i) -1
-!       end do
-!       offset = offset + listPtr % nlist + 1
-!       listPtr => listPtr % next
-!     end do
+      ! == First prepare communication lists
+      nHaloLayers = size(field % sendList % halos)
+      allocate(haloLayers(nHaloLayers))
+      do iHalo = 1, nHaloLayers
+         haloLayers(iHalo) = iHalo
+      end do
+      ! Built new send/receive communication lists that have procID & nList filled out.
+      call mpas_dmpar_build_comm_lists(field % sendList, field % recvList, haloLayers, field % dimsizes, sendCommList, recvCommList)
+
+
+      ! == Next populate the commLists' ibuffer field with the element indices to communicate
+
+      ! NOTE:  Looping over the various block's via the field linked list is NOT needed
+      !  because packing the communication list with indices will be garbage
+      !  if there is more than one block per processor since the indices are block specific.
+      !  External dycores currently only support one block per processor and
+      !  this subroutine would need substantial modification to support more.
+      !  However I am keeping the code that traverses blocks
+      !  because this section is taken from mpas_dmpar_exch_halo_field1d_integer
+      !  and retaining it makes comparison to that subroutine easier.  The only
+      !  difference is the assignements to the ibuffers.
+      !  A check for 1 block per proc is in li_lifev_init.
+
+
+      ! Allocate space in send lists, and copy data into buffer
+      commListPtr => sendCommList
+      do while(associated(commListPtr))  ! Traverse all the processors to be sent to.
+        allocate(commListPtr % ibuffer(commListPtr % nList))
+        nullify(commListPtr % rbuffer)
+        bufferOffset = 0
+        do iHalo = 1, nHaloLayers
+          nAdded = 0
+
+          fieldCursor => field
+          do while(associated(fieldCursor))  ! This is the linked list traversal that is NOT needed.
+            exchListPtr => fieldCursor % sendList % halos(haloLayers(iHalo)) % exchList
+            do while(associated(exchListPtr))
+              if (exchListPtr % endPointID == commListPtr % procID) then
+                do  i = 1, exchListPtr % nList
+                  commListPtr % ibuffer(exchListPtr % destList(i) + bufferOffset) = exchListPtr % srcList(i)  ! local indices to go into the send communication list
+                  nAdded = nAdded + 1
+
+                end do
+              end if
+
+              exchListPtr => exchListPtr % next
+            end do
+
+            fieldCursor => fieldCursor % next
+          end do
+          bufferOffset = bufferOffset + nAdded
+        end do
+
+        commListPtr => commListPtr % next
+      end do
+
+
+      ! Allocate space in recv lists, and copy data into buffer
+      commListPtr => recvCommList
+      do while(associated(commListPtr))  ! Traverse all the processors to receive from.
+        allocate(commListPtr % ibuffer(commListPtr % nList))
+        nullify(commListPtr % rbuffer)
+        bufferOffset = 0
+        do iHalo = 1, nHaloLayers
+          nAdded = 0
+          fieldCursor => field
+          do while(associated(fieldCursor))  ! This is the linked list traversal that is NOT needed.
+            exchListPtr => fieldCursor % recvList % halos(haloLayers(iHalo)) % exchList
+            do while(associated(exchListPtr))
+              if (exchListPtr % endPointID == commListPtr % procID) then
+                do i = 1, exchListPtr % nList
+                  commListPtr % ibuffer( exchListPtr % srcList(i) + bufferOffset ) = exchListPtr % destList(i)  ! buffer index to go into the receive communication list
+                end do
+                nAdded = max(nAdded, maxval(exchListPtr % srcList))
+              end if
+              exchListPtr => exchListPtr % next
+            end do
+
+            fieldCursor => fieldCursor % next
+          end do
+          bufferOffset = bufferOffset + nAdded
+        end do
+        commListPtr => commListPtr % next
+      end do
+
+
+      ! ========================================================================
+      ! Step 2: Flatten the communication lists to flat arrays 
+      ! ========================================================================
+      call fill_exchange_array(sendCommList, sendArray)
+      call fill_exchange_array(recvCommList, recvArray)
+
+
+      ! Clean up
+      call mpas_dmpar_destroy_communication_list(sendCommList)
+      call mpas_dmpar_destroy_communication_list(recvCommList)
+      deallocate(haloLayers)
 
    end subroutine array_from_exchange_list
+!***********************************************************************
+
 
 !***********************************************************************
+!
+!  routine fill_exchange_array
+!
+!> \brief   Fills the flat array for external use with information from an MPAS communication list
+!> \author Matt Hoffman
+!> \date   15 October 2013
+!> \version SVN:$Id$
+!> \details
+!>  This routine converts the MPAS Communication Lists (type mpas_communication_list)
+!>  to flat arrays for use by external dycores.  The arrays have this format:
+!>
+!>  Pos 1: total size of array
+!>  For each processor to be communicated with:
+!>    Pos 1: processor ID
+!>    Pos 2: nList (number of elements in this processor's sub-list
+!>    Pos 3 to 3+nList-1:  local indices of elements to be communicated (using 0-based indexing for C/C++)
+!-----------------------------------------------------------------------
+   subroutine fill_exchange_array(commList, commArray)
+      !-----------------------------------------------------------------
+      ! input variables
+      !-----------------------------------------------------------------
+      type (mpas_communication_list), pointer, intent(in) :: &
+         commList  !< Input: Communication list to be flattened
+
+      !-----------------------------------------------------------------
+      ! input/output variables
+      !-----------------------------------------------------------------
+      integer, dimension(:), pointer :: commArray !< Input/Output: the flat array of elements to communicate, should be unallocated on input
+
+      !-----------------------------------------------------------------
+      ! output variables
+      !-----------------------------------------------------------------
+!      integer, intent(out) :: err !< Output: error flag
+
+      !-----------------------------------------------------------------
+      ! local variables
+      !-----------------------------------------------------------------
+      integer :: arraySize ! size of array to house the send or receive list (sendArray, recvArray)
+      integer :: offset !  offset for adding metadata about each processor into the flat commArray
+      integer :: i
+      type (mpas_communication_list), pointer :: commListPtr  ! A temporary comm list pointer for traversing linked lists
+
+      arraySize = 1 !in first position we will store the size of the array
+      commListPtr => commList
+      do while (associated(commListPtr))
+         ! for each processor to be communicated with, we will store the procID, nList, and then the list of local indices to be communicated
+         arraySize = arraySize + commListPtr % nlist + 2
+         commListPtr => commListPtr % next
+      end do
+
+      allocate(commArray(arraySize))
+
+      commArray(1) = arraySize
+      offset = 2    ! we will store the procID, nList before the list of local indices
+      commListPtr => commList
+      do while (associated(commListPtr))
+         commArray(offset) = commListPtr % procID  ! store procID
+         offset = offset + 1
+         commArray(offset) = commListPtr % nlist   ! store nList
+         do i = 1 , commListPtr % nlist
+            commArray(i+offset) = commListPtr % ibuffer(i) -1  ! add the list of elements to be communicated, switching to 0-based indexing for C/C++
+         end do
+         offset = offset + commListPtr % nlist + 1
+
+         commListPtr => commListPtr % next
+      end do
+
+   end subroutine fill_exchange_array
+!***********************************************************************
+
 
 end module li_lifev
 
