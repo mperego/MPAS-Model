@@ -20,6 +20,7 @@ module li_lifev
    use mpas_grid_types
    use mpas_configure
    use mpas_dmpar
+   use mpas_configure
    !use, intrinsic :: iso_c_binding
 
    implicit none
@@ -124,7 +125,7 @@ contains
       !call lifeV and set the grid of the velocity solver
       call velocity_solver_init_mpi(domain % dminfo % comm)
 
-      if (config_dycore == 'phg-Stokes')
+      if (config_velocity_solver == 'phg-Stokes') then
           call phg_init(domain, err)
       endif
       err = ior(err,err_tmp)
@@ -258,15 +259,17 @@ contains
       !zCell is supposed to be zero for L1L2 and FO solvers
       !nVertLevels should be equal to nVertLevelsSolve (no split the domain in the vertical direction)
       call mpas_timer_start("velocity_solver_set_grid_data")
-      call velocity_solver_set_grid_data(nCells, nEdges, nVertices, nVertLevels, nCellsSolve, nEdgesSolve, nVerticesSolve, &
-	cellsOnEdge, cellsOnVertex, verticesOnCell, verticesOnEdge, indexToCellID, xCell, yCell, zCell, areaTriangle, &
-	sendCellsArray, recvCellsArray, sendEdgesArray, recvEdgesArray, sendVerticesArray, recvVerticesArray)
+      call velocity_solver_set_grid_data(nCells, nEdges, nVertices, nVertLevels, &
+              nCellsSolve, nEdgesSolve, nVerticesSolve, &
+              cellsOnEdge, cellsOnVertex, verticesOnCell, verticesOnEdge, indexToCellID, &
+              xCell, yCell, zCell, areaTriangle, &
+              sendCellsArray, recvCellsArray, &
+              sendEdgesArray, recvEdgesArray, &
+              sendVerticesArray, recvVerticesArray)
       call mpas_timer_stop("velocity_solver_set_grid_data")
 #else
-      write(*,*) "LifeV needed to run L1L2, FO and Stokes models"
-      write(0,*) "LifeV needed to run L1L2, FO and Stokes models"
+      write(0,*) "Error: LifeV needed to run L1L2, FO and Stokes models"
       err = 1
-      return
 #endif
 
       !these can be deallocated because they have been copied on the c++ side
@@ -277,6 +280,10 @@ contains
                  sendEdgesArray, &
                  recvEdgesArray)
 
+      ! === error check
+      if (err > 0) then
+          write (0,*) "An error has occurred in li_lifev_block_init."
+      endif
 
    !--------------------------------------------------------------------
    end subroutine li_lifev_block_init
@@ -332,7 +339,7 @@ contains
       !
       !-----------------------------------------------------------------
       real (kind=RKIND), dimension(:), pointer :: &
-         thickness, lowerSurface, upperSurface, beta, LayerThicknessFractions
+         thickness, lowerSurface, upperSurface, LayerThicknessFractions, beta
       real (kind=RKIND), dimension(:,:), pointer :: &
          normalVelocity
       real (kind=RKIND), dimension(:,:,:), pointer :: &
@@ -340,7 +347,7 @@ contains
       integer, dimension(:), pointer :: vertexMask
 
       integer :: index_temperature
-      real (kind=RKIND) :: anyVertexMaskChanged  ! THIS TYPE NEEDS TO BE CHANGE TO INTEGER ONCE REGISTRY IS UPDATED
+      integer :: anyVertexMaskChanged
 
       err = 0
       
@@ -361,25 +368,25 @@ contains
 
 #ifdef USE_LIFEV
       ! LifeV calls to be made only when vertex mask changes
-      if (anyVertexMaskChanged .eq. 1) then
+      if (anyVertexMaskChanged == 1) then
           call mpas_timer_start("velocity_solver_compute_2d_grid")
           call velocity_solver_compute_2d_grid(vertexMask)
           call mpas_timer_stop("velocity_solver_compute_2d_grid")
 
-          select case (config_dycore)
-          case ('L1L2')
+          select case (config_velocity_solver)
+          case ('lifev-L1L2')
               call mpas_timer_start("velocity_solver_init_L1L2")
 	      !call velocity_solver_extrude_3d_grid(LayerThicknessFractions, lowerSurface, thickness)
 	      call velocity_solver_init_L1L2(LayerThicknessFractions)
               call mpas_timer_stop("velocity_solver_init_L1L2")
-          case ('FO')
+          case ('lifev-FO')
               call mpas_timer_start("velocity_solver_extrude_3d_grid")
               call velocity_solver_extrude_3d_grid(LayerThicknessFractions, lowerSurface, thickness)
               call mpas_timer_stop("velocity_solver_extrude_3d_grid")
               call mpas_timer_start("velocity_solver_init_FO")
               call velocity_solver_init_FO(LayerThicknessFractions)
               call mpas_timer_stop("velocity_solver_init_FO")
-          case ('Stokes')
+          case ('phg-Stokes')
 #ifdef USE_PHG
               call mpas_timer_start("velocity_solver_extrude_3d_grid")
               call velocity_solver_extrude_3d_grid(LayerThicknessFractions, lowerSurface, thickness)
@@ -396,8 +403,8 @@ contains
       endif
 
       ! LifeV calls to be made every time step (solve velocity!)
-      select case (config_dycore)
-      case ('L1L2')
+      select case (config_velocity_solver)
+      case ('lifev-L1L2')
           call mpas_timer_start("velocity_solver_solve_L1L2")
           call velocity_solver_solve_L1L2(lowerSurface, thickness, beta, tracers(index_temperature,:,:), normalVelocity)
 !         call velocity_solver_estimate_SS_SMB(normalVelocity, mesh % sfcMassBal % array)
@@ -407,7 +414,7 @@ contains
           call velocity_solver_export_2d_data(lowerSurface, thickness, beta)
           call velocity_solver_export_L1L2_velocity();
           call mpas_timer_stop("velocity_solver export")
-      case ('FO')
+      case ('lifev-FO')
           call mpas_timer_start("velocity_solver_solve_FO")
           call velocity_solver_solve_FO(lowerSurface, thickness, beta, tracers(index_temperature,:,:), normalVelocity)
 !	  call velocity_solver_estimate_SS_SMB(normalVelocity, mesh % sfcMassBal % array)
@@ -417,7 +424,7 @@ contains
 !	  call velocity_solver_export_2d_data(lowerSurface, thickness, beta)
           call velocity_solver_export_FO_velocity()
           call mpas_timer_stop("velocity_solver export")
-      case ('Stokes')
+      case ('phg-Stokes')
 #ifdef USE_PHG
           call mpas_timer_start("velocity_solver_solve_stokes")
           call velocity_solver_solve_stokes(lowerSurface, thickness, beta, tracers(index_temperature,:,:), normalVelocity)
@@ -433,6 +440,8 @@ contains
       err = 1
       return
 #endif
+
+	normalVelocity = normalVelocity / (365.0*24.0*3600.0)  ! convert from m/yr to m/s
 
    !--------------------------------------------------------------------
    end subroutine li_lifev_solve
@@ -488,7 +497,7 @@ contains
       ! This call is needed for using any of the LifeV velocity solvers
       call velocity_solver_finalize()
 #else
-      write(*,*) "LifeV needed to run L1L2, FO and Stokes models"
+      write(0,*) "Error: LifeV needed to run L1L2, FO and Stokes models"
       err = 1
       return
 #endif

@@ -25,7 +25,7 @@ module li_velocity
 
    use mpas_grid_types
    use mpas_configure
-!!!   use li_lifev
+   use li_lifev
    use li_sia
 
    implicit none
@@ -110,16 +110,14 @@ contains
           call li_sia_init(domain, err)
       case ('lifev-L1L2', 'lifev-FO', 'phg-Stokes')
           call li_lifev_init(domain, err)
-!!!          call li_phg_init(domain, err)
       case default
-          write(*,*) trim(config_velocity_solver), ' is not a valid land ice velocity solver option.'
+          write(0,*) trim(config_velocity_solver), ' is not a valid land ice velocity solver option.'
           err = 1
-          return
       end select
 
       ! === error check
       if (err > 0) then
-          write (0,*) "An error has occurred in li_timestep."
+          write (0,*) "An error has occurred in li_velocity_init."
       endif
 
    !--------------------------------------------------------------------
@@ -206,7 +204,7 @@ contains
 !-----------------------------------------------------------------------
    subroutine li_velocity_solve(mesh, state, err)
 
-      use li_sia
+      use li_mask
 
       !-----------------------------------------------------------------
       !
@@ -255,22 +253,25 @@ contains
       case ('lifev-L1L2', 'lifev-FO', 'phg-Stokes')
           call li_lifev_solve(mesh, state, err)
       case default
-          write(*,*) trim(config_velocity_solver), ' is not a valid land ice velocity solver option.'
+          write(0,*) 'Error: ', trim(config_velocity_solver), ' is not a valid land ice velocity solver option.'
           err = 1
           return
       end select
 
-
-!!!      do iEdge = 1, nEdges
-!!!         if ( MASK_IS_THIN_ICE(edgeMask(iEdge)) .and. (maxval(abs(normalVelocity(:,iEdge))) /= 0.0_RKIND) ) then
-!!!            err = 1
-!!!            normalVelocity(:,iEdge) = 0.0_RKIND  ! this is a hack because the rest of the code requires this, but this condition should really cause a fatal error.
-!!!         endif
-!!!      enddo
-!!!      if (err == 1) then
-!!!         write(0,*) 'Velocity has been calculated on non-dynamic edges.  There is a problem with the velocity solver.  Velocity on those edges have been set to 0, but this should be a fatal error.'
-!!!         err = 0  ! a hack to let the code continue until this can be fixed in the velocity solver
-!!!      end if
+      ! Check if the velocity solver has returned a velocity on any non-dynamic edges
+      do iEdge = 1, nEdges
+         if ( li_mask_is_ice(edgeMask(iEdge)) .and.                    &
+              (.not.(li_mask_is_dynamic_ice(edgeMask(iEdge)))) .and.   &
+              (maxval(abs(normalVelocity(:,iEdge))) /= 0.0_RKIND)      &
+            ) then
+            err = 1
+            !!!normalVelocity(:,iEdge) = 0.0_RKIND  ! this is a hack because the rest of the code requires this, but this condition should really cause a fatal error.
+         endif
+      enddo
+      if (err == 1) then
+         write(0,*) 'Error: Velocity has been calculated on non-dynamic edges.  There is a problem with the velocity solver.' !!!  Velocity on those edges have been set to 0, but this should be a fatal error.'
+         err = 1  ! a hack to let the code continue until this can be fixed in the velocity solver
+      end if
 
       ! === error check
       if (err > 0) then

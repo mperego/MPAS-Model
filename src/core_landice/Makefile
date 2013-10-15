@@ -1,3 +1,15 @@
+# Check if building with LifeV and/or PHG external libraries
+ifeq "$(LIFEV)" "true"
+   LIFEVFLAG = -DUSE_LIFEV
+endif # LIFEV IF
+
+ifeq "$(PHG)" "true"
+   LIFEVFLAG += -DUSE_PHG
+endif # PHG IF
+
+override CPPFLAGS += $(LIFEVFLAG)
+
+
 .SUFFIXES: .F .o
 
 OBJS = 	mpas_li_mpas_core.o \
