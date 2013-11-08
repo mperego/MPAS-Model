@@ -501,7 +501,9 @@ module mpas_core
       do i=2,nTimeLevs
          call mpas_copy_state(block % state % time_levs(i) % state,   state)
       end do
-   
+      ! Initialize vertexMask on time level 2 to junk, so diagnostic_solve_before_velocity in li_diagnostic_vars says that the vertexMask has changed (needed by external dycore)
+      block % state % time_levs(2) % state % vertexMask % array = -9999
+
       ! Assign initial time stamp
       state % xtime % scalar = startTimeStamp
 

@@ -94,6 +94,8 @@ contains
       !-----------------------------------------------------------------
 
       type (domain_type), intent(inout) :: domain  !< Input/Output: domain object
+      ! Note: domain is passed in because halo updates are needed in this routine
+      ! and halo updates have to happen outside block loops, which requires domain.
 
       !-----------------------------------------------------------------
       !
@@ -121,7 +123,7 @@ contains
       ! ===
 
       call mpas_timer_start("calc. diagnostic vars except vel")
-      call diagnostic_solve_before_velocity(domain, timeLevel, err_tmp)  ! perhaps velocity solve should move in here.
+      call diagnostic_solve_before_velocity(domain, timeLevel, err_tmp)
       err = ior(err, err_tmp)
       call mpas_timer_stop("calc. diagnostic vars except vel")
 
@@ -272,7 +274,7 @@ contains
       real (kind=RKIND), dimension(:,:), pointer :: layerThickness
       real (kind=RKIND) :: thisThk
       integer :: blockVertexMaskChanged, procVertexMaskChanged
-      type (state_type), pointer :: stateNew, stateOld
+      type (state_pointer_type), dimension(:), pointer :: time_levs
       integer :: err_tmp
 
 
@@ -363,11 +365,10 @@ contains
          !  blocks anyway, in case some day they do.
          block => domain % blocklist
          do while (associated(block))
-            stateNew => block % state % time_levs(2) % state
-            stateOld => block % state % time_levs(1) % state
+            time_levs => block % state % time_levs
             ! Determine if the vertex mask changed during this time step for this block (needed for LifeV)
             ! \todo:  there may be some aspects of the mask that are ok change for LifeV, but for now just check the whole thing.
-            if ( sum(stateNew % vertexMask % array - stateOld % vertexMask % array) /= 0 ) then
+            if ( sum(time_levs(1) % state % vertexMask % array - time_levs(2) % state % vertexMask % array) /= 0 ) then
                 blockVertexMaskChanged = 1
             else
                 blockVertexMaskChanged = 0
@@ -376,12 +377,14 @@ contains
 
             ! Determine if any blocks on this processor had a change to the vertex mask
             procVertexMaskChanged = max(procVertexMaskChanged, blockVertexMaskChanged)
+            !print *,'procVertexMaskChanged', procVertexMaskChanged  
 
             block => block % next
          end do
 
          ! Determine if the vertex mask has changed on any processor and store the value for later use (need to exit the block loop to do so)
-         call mpas_dmpar_max_int(domain % dminfo, procVertexMaskChanged, stateNew % anyVertexMaskChanged % scalar)
+         call mpas_dmpar_max_int(domain % dminfo, procVertexMaskChanged, time_levs(timeLevel) % state % anyVertexMaskChanged % scalar)
+         !print *,'time_levs(timeLevel) % state% anyVertexMaskChanged % scalar', time_levs(timeLevel) % state % anyVertexMaskChanged % scalar
 
       end if
 
