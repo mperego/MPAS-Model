@@ -196,13 +196,15 @@ contains
       !
       !-----------------------------------------------------------------
 
-      integer :: nCells, nEdges, nVertices, nCellsSolve, nEdgesSolve, nVerticesSolve, nVertLevels
+      integer :: nCells, nEdges, nVertices, nCellsSolve, nEdgesSolve, nVerticesSolve, nVertLevels, maxNEdgesOnCell 
 
-      integer, dimension(:,:), pointer :: cellsOnEdge, cellsOnVertex, verticesOnCell, verticesOnEdge
+      integer, dimension(:,:), pointer :: cellsOnEdge, cellsOnVertex, verticesOnCell, verticesOnEdge, edgesOnCell
 
-      integer, dimension(:), pointer :: indexToCellID
+      integer, dimension(:), pointer :: indexToCellID, nEdgesOnCell
 
       real (kind=RKIND), dimension(:), pointer :: xCell, yCell, zCell, areaTriangle
+
+      real (kind=RKIND) :: radius
 
       ! halo exchange arrays
       integer, dimension(:), pointer :: sendCellsArray, &
@@ -227,16 +229,21 @@ contains
       nEdges = block % mesh % nEdges
       nVertices = block % mesh % nVertices
       nVertLevels = block % mesh % nVertLevels
+      
+      maxNEdgesOnCell = block % mesh % maxEdges;
 
       cellsOnEdge => block % mesh % cellsOnEdge % array
       cellsOnVertex => block % mesh % cellsOnVertex % array
       verticesOnCell => block % mesh % verticesOnCell % array
       verticesOnEdge => block % mesh % verticesOnEdge % array
+      edgesOnCell => block % mesh % edgesOnCell % array
       indexToCellID => block % mesh % indexToCellID % array
+      nEdgesOnCell => block % mesh % nEdgesOnCell % array
 
       xCell => block % mesh % xCell % array
       yCell => block % mesh % yCell % array
       zCell => block % mesh % zCell % array
+      radius = block % mesh % sphere_radius
 
       areaTriangle => block % mesh % areaTriangle % array
 
@@ -256,12 +263,12 @@ contains
 #ifdef USE_LIFEV
       ! These calls are needed for using any of the LifeV velocity solvers
 
-      !zCell is supposed to be zero for L1L2 and FO solvers
+      !zCell is supposed to be zero when working on planar geometries (radius = 0) 
       !nVertLevels should be equal to nVertLevelsSolve (no split the domain in the vertical direction)
       call mpas_timer_start("velocity_solver_set_grid_data")
       call velocity_solver_set_grid_data(nCells, nEdges, nVertices, nVertLevels, &
-              nCellsSolve, nEdgesSolve, nVerticesSolve, &
-              cellsOnEdge, cellsOnVertex, verticesOnCell, verticesOnEdge, indexToCellID, &
+              nCellsSolve, nEdgesSolve, nVerticesSolve, maxNEdgesOnCell, radius, &
+              cellsOnEdge, cellsOnVertex, verticesOnCell, verticesOnEdge, edgesOnCell, nEdgesOnCell, indexToCellID, &
               xCell, yCell, zCell, areaTriangle, &
               sendCellsArray, recvCellsArray, &
               sendEdgesArray, recvEdgesArray, &
