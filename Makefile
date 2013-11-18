@@ -191,6 +191,24 @@ cray-nersc:
 	"USE_PAPI = $(USE_PAPI)" \
 	"CPPFLAGS = $(MODEL_FORMULATION) -D_MPI -DUNDERSCORE" )
 
+gcc-nersc:
+	( $(MAKE) all \
+        "FC_PARALLEL = ftn" \
+        "CC_PARALLEL = cc" \
+        "FC_SERIAL = ftn" \
+        "CC_SERIAL = cc" \
+        "FFLAGS_OPT = -O3 -m64 -ffree-line-length-none -fdefault-real-8 -fdefault-double-8 -fconvert=big-endian -ffree-form" \
+        "CFLAGS_OPT = -O3 -m64" \
+        "LDFLAGS_OPT = -O3 -m64" \
+        "FFLAGS_DEBUG = -g -m64 -ffree-line-length-none -fdefault-real-8 -fdefault-double-8 -fconvert=big-endian -ffree-form" \
+        "CFLAGS_DEBUG = -g -m64" \
+        "LDFLAGS_DEBUG = -g -m64" \
+        "CORE = $(CORE)" \
+        "DEBUG = $(DEBUG)" \
+        "SERIAL = $(SERIAL)" \
+        "USE_PAPI = $(USE_PAPI)" \
+        "CPPFLAGS = $(MODEL_FORMULATION) -DUNDERSCORE -D_MPI $(FILE_OFFSET) $(ZOLTAN_DEFINE)" )
+
 intel-nersc:
 	( $(MAKE) all \
 	"FC_PARALLEL = ftn" \
