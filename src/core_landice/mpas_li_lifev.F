@@ -126,7 +126,7 @@ contains
       call velocity_solver_init_mpi(domain % dminfo % comm)
 
       if (config_velocity_solver == 'phg-Stokes') then
-          call phg_init(domain, err)
+          call interface_phg_init(domain, err)
       endif
       err = ior(err,err_tmp)
 
@@ -522,19 +522,18 @@ contains
 
 !***********************************************************************
 !
-!  routine phg_init
+!  routine interface_phg_init
 !
 !> \brief   Initializes phg velocity solver
 !> \author Matt Hoffman
 !> \date   3 October 2013
-!> \version SVN:$Id$
 !> \details
 !>  This routine initializes the ice velocity solver in the PHG
 !>  external library.
 !
 !-----------------------------------------------------------------------
 
-   subroutine phg_init(domain, err)
+   subroutine interface_phg_init(domain, err)
 
       !-----------------------------------------------------------------
       !
@@ -576,7 +575,7 @@ contains
 #endif
 
    !--------------------------------------------------------------------
-   end subroutine phg_init
+   end subroutine interface_phg_init
 
 
 
