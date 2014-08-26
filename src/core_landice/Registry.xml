@@ -36,7 +36,7 @@
 	<nml_record name="velocity_solver">
 		<nml_option name="config_velocity_solver" type="character" default_value="sia" units="unitless"
 		            description="Selection of the method for solving ice velocity."
-		            possible_values="'sia', 'lifev-L1L2', 'lifev-FO', 'phg-Stokes'"
+		            possible_values="'sia', 'L1L2', 'FO', 'Stokes'"
 		/>
 	</nml_record>
 

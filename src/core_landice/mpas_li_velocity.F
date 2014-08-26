@@ -25,7 +25,7 @@ module li_velocity
 
    use mpas_grid_types
    use mpas_configure
-   use li_lifev
+   use li_velocity_external
    use li_sia
 
    implicit none
@@ -108,8 +108,8 @@ contains
       select case (config_velocity_solver)
       case ('sia')
           call li_sia_init(domain, err)
-      case ('lifev-L1L2', 'lifev-FO', 'phg-Stokes')
-          call li_lifev_init(domain, err)
+      case ('L1L2', 'FO', 'Stokes')
+          call li_velocity_external_init(domain, err)
       case default
           write(0,*) trim(config_velocity_solver), ' is not a valid land ice velocity solver option.'
           err = 1
@@ -172,8 +172,8 @@ contains
       select case (config_velocity_solver)
       case ('sia')
           call li_sia_block_init(block, err)
-      case ('lifev-L1L2', 'lifev-FO', 'phg-Stokes')
-          call li_lifev_block_init(block, err)
+      case ('L1L2', 'FO', 'Stokes')
+          call li_velocity_external_block_init(block, err)
       case default
           write(*,*) trim(config_velocity_solver), ' is not a valid land ice velocity solver option.'
           err = 1
@@ -250,8 +250,8 @@ contains
       select case (config_velocity_solver)
       case ('sia')
           call li_sia_solve(mesh, state, err)
-      case ('lifev-L1L2', 'lifev-FO', 'phg-Stokes')
-          call li_lifev_solve(mesh, state, err)
+      case ('L1L2', 'FO', 'Stokes')
+          call li_velocity_external_solve(mesh, state, err)
       case default
           write(0,*) 'Error: ', trim(config_velocity_solver), ' is not a valid land ice velocity solver option.'
           err = 1
@@ -330,8 +330,8 @@ contains
       select case (config_velocity_solver)
       case ('sia')
           call li_sia_finalize(domain, err)
-      case ('lifev-L1L2', 'lifev-FO', 'phg-Stokes')
-          call li_lifev_finalize(domain, err)
+      case ('L1L2', 'FO', 'Stokes')
+          call li_velocity_external_finalize(domain, err)
       case default
           write(*,*) trim(config_velocity_solver), ' is not a valid land ice velocity solver option.'
           err = 1

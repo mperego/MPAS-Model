@@ -1,20 +1,20 @@
 !|||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
 !
-!  li_lifev
+!  li_velocity_external
 !
-!> \MPAS land-ice velocity driver
+!> \MPAS land-ice velocity driver for external dycores
 !> \author Matt Hoffman
 !> \date   3 October 2013
 !> \version SVN:$Id:$
 !> \details
-!>  This module contains the routines for interfacing with the 
-!>  external velocity solver LifeV and optionally the PHG
-!>  Full Stokes velocity solver that requires LifeV
+!>  This module contains the routines for interfacing with 
+!>  external velocity solvers.  These currently are LifeV (L1L2, First order), 
+!>  Albany (First order), and PHG (Stokes).
 !>
 !
 !-----------------------------------------------------------------------
 
-module li_lifev
+module li_velocity_external
 
 
    use mpas_grid_types
@@ -39,10 +39,10 @@ module li_lifev
    !
    !--------------------------------------------------------------------
 
-   public :: li_lifev_init, &
-             li_lifev_block_init, &
-             li_lifev_solve, &
-             li_lifev_finalize
+   public :: li_velocity_external_init, &
+             li_velocity_external_block_init, &
+             li_velocity_external_solve, &
+             li_velocity_external_finalize
 
    !--------------------------------------------------------------------
    !
@@ -61,19 +61,19 @@ contains
 
 !***********************************************************************
 !
-!  routine li_lifev_init
+!  routine li_velocity_external_init
 !
 !> \brief   Initializes velocity solver
 !> \author Matt Hoffman
 !> \date   3 October 2013
 !> \version SVN:$Id$
 !> \details
-!>  This routine initializes the ice velocity solver in the LifeV
-!>  external velocity solver.
+!>  This routine initializes the ice velocity solver in
+!>  external velocity solvers.
 !
 !-----------------------------------------------------------------------
 
-   subroutine li_lifev_init(domain, err)
+   subroutine li_velocity_external_init(domain, err)
 
       !-----------------------------------------------------------------
       !
@@ -107,63 +107,70 @@ contains
       err = 0
       err_tmp = 0
 
-      ! Check for configuration options that are incompatible with LifeV velocity solver
+      ! Check for configuration options that are incompatible with external velocity solver conventions
       if (config_num_halos /= 3) then
-         write(0,*) "Error: LifeV velocity solvers requires that config_num_halos=3"
+         write(0,*) "Error: External velocity solvers require that config_num_halos=3"
          err_tmp = 1
       endif
       err = ior(err,err_tmp)
       if (config_number_of_blocks /= 0) then
-         write(0,*) "Error: LifeV velocity solvers requires that config_number_of_blocks=0"
+         write(0,*) "Error: External velocity solvers require that config_number_of_blocks=0"
          err_tmp = 1
       endif
       err = ior(err,err_tmp)
 
-#ifdef USE_LIFEV
-      ! These calls are needed for using any of the LifeV velocity solvers
 
-      !call lifeV and set the grid of the velocity solver
+      ! These calls are needed for setting up the external velocity solvers
+
+#if defined(USE_EXTERNAL_L1L2) || defined(USE_EXTERNAL_FIRSTORDER) || defined(USE_EXTERNAL_STOKES)
+      !call external first order solver to set the grid of the velocity solver
       call velocity_solver_init_mpi(domain % dminfo % comm)
+#else
+      err = 1
+      write(0,*) "Error: To run with an external velocity solver you must compile MPAS with one."
+#endif
 
-      if (config_velocity_solver == 'phg-Stokes') then
+
+      if (config_velocity_solver == 'Stokes') then
+#ifdef USE_EXTERNAL_STOKES
           call interface_phg_init(domain, err)
+#else
+          write(0,*) "Error: External Stokes library needed to run stokes dycore."
+          err = 1
+          return
+#endif
       endif
       err = ior(err,err_tmp)
 
 
-#else
-
-      err = 1
-      write(0,*) "Error: Compiling with LifeV required to run LifeV-L1L2, LifeV-FO and PHG-Stokes models"
-
-#endif
-
-
       ! === error check
       if (err > 0) then
-          write (0,*) "An error has occurred in li_lifev_init."
+          write (0,*) "An error has occurred in li_velocity_external_init."
       endif
 
    !--------------------------------------------------------------------
-   end subroutine li_lifev_init
+   end subroutine li_velocity_external_init
 
 
 
 !***********************************************************************
 !
-!  routine li_lifev_block_init
+!  routine li_velocity_external_block_init
 !
-!> \brief   Initializes velocity solver
+!> \brief   Initializes blocks for external velocity solver use
 !> \author Matt Hoffman
 !> \date   3 October 2013
 !> \version SVN:$Id$
 !> \details 
 !>  This routine initializes each block of the ice velocity solver in the 
-!>  LifeV external velocity solver.
+!>  external velocity solver.
+!>   Note: LifeV/Albany/PHG only support one block per processor, but this has (hopefully)
+!>   been written to work if that were to change.  (That's why all these external dycore init
+!>   calls are in li_velocity_external_block_init instead of li_velocity_external_init.)
 !
 !-----------------------------------------------------------------------
 
-   subroutine li_lifev_block_init(block, err)
+   subroutine li_velocity_external_block_init(block, err)
 
        use mpas_timer
 
@@ -216,10 +223,6 @@ contains
 
       err = 0
 
-      ! Note: LifeV only supports one block per processor, but this has (hopefully)
-      ! been written to work if that were to change.  (That's why all these LifeV init
-      ! calls are in li_lifev_block_init instead of li_lifev_init.)
-
       !extract data from domain
       nCellsSolve = block % mesh % nCellsSolve
       nEdgesSolve = block % mesh % nEdgesSolve
@@ -260,11 +263,11 @@ contains
 !      call array_from_exchange_list(block % parinfo % edgesToSend, sendEdgesArray)
 !      call array_from_exchange_list(block % parinfo % edgesToRecv, recvEdgesArray)
 
-#ifdef USE_LIFEV
-      ! These calls are needed for using any of the LifeV velocity solvers
+#if defined(USE_EXTERNAL_L1L2) || defined(USE_EXTERNAL_FIRSTORDER) || defined(USE_EXTERNAL_STOKES)
+      ! These calls are needed for using any of the external velocity solvers
 
       !zCell is supposed to be zero when working on planar geometries (radius = 0) 
-      !nVertLevels should be equal to nVertLevelsSolve (no split the domain in the vertical direction)
+      !nVertLevels should be equal to nVertLevelsSolve (no splitting of the domain in the vertical direction)
       call mpas_timer_start("velocity_solver_set_grid_data")
       call velocity_solver_set_grid_data(nCells, nEdges, nVertices, nVertLevels, &
               nCellsSolve, nEdgesSolve, nVerticesSolve, maxNEdgesOnCell, radius, &
@@ -275,7 +278,7 @@ contains
               sendVerticesArray, recvVerticesArray)
       call mpas_timer_stop("velocity_solver_set_grid_data")
 #else
-      write(0,*) "Error: LifeV needed to run L1L2, FO and Stokes models"
+      write(0,*) "Error: To run with an external velocity solver you must compile MPAS with one."
       err = 1
 #endif
 
@@ -289,28 +292,28 @@ contains
 
       ! === error check
       if (err > 0) then
-          write (0,*) "An error has occurred in li_lifev_block_init."
+          write (0,*) "An error has occurred in li_velocity_external_block_init."
       endif
 
    !--------------------------------------------------------------------
-   end subroutine li_lifev_block_init
+   end subroutine li_velocity_external_block_init
 
 
 
 !***********************************************************************
 !
-!  routine li_lifev_solve
+!  routine li_velocity_external_solve
 !
-!> \brief   Interface to call LifeV velocity solvers
+!> \brief   Interface to call external velocity solvers
 !> \author Matt Hoffman
 !> \date   3 October 2013
 !> \version SVN:$Id$
 !> \details 
-!>  This routine calls external LifeV velocity solvers and/or PHG velocity solvers.
+!>  This routine calls external first-order velocity solvers and/or Stokes velocity solvers.
 !
 !-----------------------------------------------------------------------
 
-   subroutine li_lifev_solve(mesh, state, err)
+   subroutine li_velocity_external_solve(mesh, state, err)
 
        use mpas_timer
 
@@ -373,28 +376,50 @@ contains
       anyVertexMaskChanged = state % anyVertexMaskChanged % scalar
 
 
-#ifdef USE_LIFEV
-      ! LifeV calls to be made only when vertex mask changes
+      ! ==================================================================
+      ! External dycore calls to be made only when vertex mask changes
+      ! ==================================================================
+
       if (anyVertexMaskChanged == 1) then
+#if defined(USE_EXTERNAL_L1L2) || defined(USE_EXTERNAL_FIRSTORDER) || defined(USE_EXTERNAL_STOKES)
           call mpas_timer_start("velocity_solver_compute_2d_grid")
           call velocity_solver_compute_2d_grid(vertexMask)
           call mpas_timer_stop("velocity_solver_compute_2d_grid")
+#else
+      write(0,*) "Error: To run with an external velocity solver you must compile MPAS with one."
+      err = 1
+      return
+#endif
 
           select case (config_velocity_solver)
-          case ('lifev-L1L2')
+          case ('L1L2')  ! ===============================================
+#ifdef USE_EXTERNAL_L1L2
               call mpas_timer_start("velocity_solver_init_L1L2")
-	      !call velocity_solver_extrude_3d_grid(LayerThicknessFractions, lowerSurface, thickness)
-	      call velocity_solver_init_L1L2(LayerThicknessFractions)
+              !call velocity_solver_extrude_3d_grid(LayerThicknessFractions, lowerSurface, thickness)
+              call velocity_solver_init_L1L2(LayerThicknessFractions)
               call mpas_timer_stop("velocity_solver_init_L1L2")
-          case ('lifev-FO')
+#else
+              write(0,*) "Error: External LifeV library needed to run L1L2 dycore."
+              err = 1
+              return
+#endif
+
+          case ('FO') ! ===============================================
+#ifdef USE_EXTERNAL_FIRSTORDER
               call mpas_timer_start("velocity_solver_extrude_3d_grid")
               call velocity_solver_extrude_3d_grid(LayerThicknessFractions, lowerSurface, thickness)
               call mpas_timer_stop("velocity_solver_extrude_3d_grid")
               call mpas_timer_start("velocity_solver_init_FO")
               call velocity_solver_init_FO(LayerThicknessFractions)
               call mpas_timer_stop("velocity_solver_init_FO")
-          case ('phg-Stokes')
-#ifdef USE_PHG
+#else
+              write(0,*) "Error: External library needed to run FO dycore."
+              err = 1
+              return
+#endif
+
+          case ('Stokes') ! ===============================================
+#ifdef USE_EXTERNAL_STOKES
               call mpas_timer_start("velocity_solver_extrude_3d_grid")
               call velocity_solver_extrude_3d_grid(LayerThicknessFractions, lowerSurface, thickness)
               call mpas_timer_stop("velocity_solver_extrude_3d_grid")
@@ -402,16 +427,21 @@ contains
               call velocity_solver_init_stokes(LayerThicknessFractions)
               call mpas_timer_stop("velocity_solver_init_stokes")
 #else
-              write(0,*) "Error: PHG library needed to run stokes"
+              write(0,*) "Error: External Stokes library needed to run stokes dycore."
               err = 1
               return
 #endif
           end select
       endif
 
-      ! LifeV calls to be made every time step (solve velocity!)
+
+      ! ==================================================================
+      ! External dycore calls to be made every time step (solve velocity!)
+      ! ==================================================================
+
       select case (config_velocity_solver)
-      case ('lifev-L1L2')
+      case ('L1L2') ! ===============================================
+#ifdef USE_EXTERNAL_L1L2
           call mpas_timer_start("velocity_solver_solve_L1L2")
           call velocity_solver_solve_L1L2(lowerSurface, thickness, beta, tracers(index_temperature,:,:), normalVelocity)
 !         call velocity_solver_estimate_SS_SMB(normalVelocity, mesh % sfcMassBal % array)
@@ -421,7 +451,14 @@ contains
           call velocity_solver_export_2d_data(lowerSurface, thickness, beta)
           call velocity_solver_export_L1L2_velocity();
           call mpas_timer_stop("velocity_solver export")
-      case ('lifev-FO')
+#else
+              write(0,*) "Error: External LifeV library needed to run L1L2 dycore."
+              err = 1
+              return
+#endif
+
+      case ('FO') ! ===============================================
+#ifdef USE_EXTERNAL_FIRSTORDER
           call mpas_timer_start("velocity_solver_solve_FO")
           call velocity_solver_solve_FO(lowerSurface, thickness, beta, tracers(index_temperature,:,:), normalVelocity)
 !	  call velocity_solver_estimate_SS_SMB(normalVelocity, mesh % sfcMassBal % array)
@@ -431,44 +468,46 @@ contains
 !	  call velocity_solver_export_2d_data(lowerSurface, thickness, beta)
           call velocity_solver_export_FO_velocity()
           call mpas_timer_stop("velocity_solver export")
-      case ('phg-Stokes')
-#ifdef USE_PHG
+#else
+              write(0,*) "Error: External library needed to run FO dycore."
+              err = 1
+              return
+#endif
+
+      case ('Stokes') ! ===============================================
+#ifdef USE_EXTERNAL_STOKES
           call mpas_timer_start("velocity_solver_solve_stokes")
           call velocity_solver_solve_stokes(lowerSurface, thickness, beta, tracers(index_temperature,:,:), normalVelocity)
           call mpas_timer_stop("velocity_solver_solve_stokes")
 #else
-          write(0,*) "Error: PHG library needed to run stokes"
+          write(0,*) "Error: External Stokes library needed to run stokes dycore."
           err = 1
           return
 #endif
       end select
-#else
-      write(0,*) "Error: LifeV needed to run L1L2, FO and Stokes models"
-      err = 1
-      return
-#endif
 
-	normalVelocity = normalVelocity / (365.0*24.0*3600.0)  ! convert from m/yr to m/s
+
+   normalVelocity = normalVelocity / (365.0*24.0*3600.0)  ! convert from m/yr to m/s
 
    !--------------------------------------------------------------------
-   end subroutine li_lifev_solve
+   end subroutine li_velocity_external_solve
 
 
 
 !***********************************************************************
 !
-!  routine li_lifev_finalize
+!  routine li_velocity_external_finalize
 !
-!> \brief   Initializes velocity solver
+!> \brief   Finalizes external velocity solvers
 !> \author Matt Hoffman
 !> \date   3 October 2013
 !> \version SVN:$Id$
 !> \details
-!>  This routine finalizes the ice velocity solver in the LifeV external library.
+!>  This routine finalizes the ice velocity solver in the external libraries.
 !
 !-----------------------------------------------------------------------
 
-   subroutine li_lifev_finalize(domain, err)
+   subroutine li_velocity_external_finalize(domain, err)
 
       !-----------------------------------------------------------------
       !
@@ -500,17 +539,17 @@ contains
 
       err = 0
 
-#ifdef USE_LIFEV
-      ! This call is needed for using any of the LifeV velocity solvers
+#if defined(USE_EXTERNAL_L1L2) || defined(USE_EXTERNAL_FIRSTORDER) || defined(USE_EXTERNAL_STOKES)
+      ! This call is needed for using any of the external velocity solvers
       call velocity_solver_finalize()
 #else
-      write(0,*) "Error: LifeV needed to run L1L2, FO and Stokes models"
+      write(0,*) "Error: To run with an external velocity solver you must compile MPAS with one."
       err = 1
       return
 #endif
 
    !--------------------------------------------------------------------
-   end subroutine li_lifev_finalize
+   end subroutine li_velocity_external_finalize
 
 
 
@@ -522,18 +561,18 @@ contains
 
 !***********************************************************************
 !
-!  routine interface_phg_init
+!  routine interface_stokes_init
 !
-!> \brief   Initializes phg velocity solver
+!> \brief   Initializes stokes external velocity solver
 !> \author Matt Hoffman
 !> \date   3 October 2013
 !> \details
-!>  This routine initializes the ice velocity solver in the PHG
-!>  external library.
+!>  This routine initializes the ice velocity solver in the stokes
+!>  external library (currently only PHG).
 !
 !-----------------------------------------------------------------------
 
-   subroutine interface_phg_init(domain, err)
+   subroutine interface_stokes_init(domain, err)
 
       !-----------------------------------------------------------------
       !
@@ -565,17 +604,17 @@ contains
 
       err = 0
 
-#ifdef USE_PHG
+#ifdef USE_EXTERNAL_STOKES
       ! This call is needed for using any of the PHG velocity solvers
       call phg_init(domain % dminfo % comm)
 #else
-      write(0,*) "Error: Compiling with PHG required to run PHG-Stokes model"
+      write(0,*) "Error: External Stokes library needed to run stokes dycore."
       err = 1
       return
 #endif
 
    !--------------------------------------------------------------------
-   end subroutine interface_phg_init
+   end subroutine interface_stokes_init
 
 
 
@@ -651,7 +690,7 @@ contains
       !  because this section is taken from mpas_dmpar_exch_halo_field1d_integer
       !  and retaining it makes comparison to that subroutine easier.  The only
       !  difference is the assignements to the ibuffers.
-      !  A check for 1 block per proc is in li_lifev_init.
+      !  A check for 1 block per proc is in li_velocity_external_init.
 
 
       ! Allocate space in send lists, and copy data into buffer
@@ -804,6 +843,6 @@ contains
 !***********************************************************************
 
 
-end module li_lifev
+end module li_velocity_external
 
 !|||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
