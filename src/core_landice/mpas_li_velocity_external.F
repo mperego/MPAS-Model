@@ -380,7 +380,7 @@ contains
       ! External dycore calls to be made only when vertex mask changes
       ! ==================================================================
 
-      if (anyVertexMaskChanged == 1) then
+      if ((anyVertexMaskChanged == 1) .or. (config_always_compute_fem_grid)) then
 #if defined(USE_EXTERNAL_L1L2) || defined(USE_EXTERNAL_FIRSTORDER) || defined(USE_EXTERNAL_STOKES)
           call mpas_timer_start("velocity_solver_compute_2d_grid")
           call velocity_solver_compute_2d_grid(vertexMask)
