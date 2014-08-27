@@ -108,8 +108,8 @@ contains
       err_tmp = 0
 
       ! Check for configuration options that are incompatible with external velocity solver conventions
-      if (config_num_halos /= 3) then
-         write(0,*) "Error: External velocity solvers require that config_num_halos=3"
+      if (config_num_halos < 2) then
+         write(0,*) "Error: External velocity solvers require that config_num_halos >= 2"
          err_tmp = 1
       endif
       err = ior(err,err_tmp)
