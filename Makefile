@@ -119,13 +119,16 @@ gfortran:
 	( $(MAKE) all \
 	"FC_PARALLEL = mpif90" \
 	"CC_PARALLEL = mpicc" \
+	"CXXC_PARALLEL = mpicxx" \
 	"FC_SERIAL = gfortran" \
 	"CC_SERIAL = gcc" \
 	"FFLAGS_OPT = -O3 -m64 -ffree-line-length-none -fdefault-real-8 -fdefault-double-8 -fconvert=big-endian -ffree-form" \
 	"CFLAGS_OPT = -O3 -m64" \
+	"CXXFLAGS_OPT = -O3 -m64" \
 	"LDFLAGS_OPT = -O3 -m64" \
 	"FFLAGS_DEBUG = -g -m64 -ffree-line-length-none -fdefault-real-8 -fdefault-double-8 -fconvert=big-endian -ffree-form -fbounds-check -fbacktrace -ffpe-trap=invalid,zero,overflow" \
 	"CFLAGS_DEBUG = -g -m64" \
+	"CXXFLAGS_DEBUG = -O3 -m64" \
 	"LDFLAGS_DEBUG = -g -m64" \
 	"CORE = $(CORE)" \
 	"DEBUG = $(DEBUG)" \
@@ -272,11 +275,13 @@ ifeq "$(DEBUG)" "true"
 ifndef FFLAGS_DEBUG
 	FFLAGS=$(FFLAGS_OPT)
 	CFLAGS=$(CFLAGS_OPT)
+	CXXFLAGS=$(CXXFLAGS_OPT)
 	LDFLAGS=$(LDFLAGS_OPT)
 	DEBUG_MESSAGE="Debug flags are not defined for this compile group. Defaulting to Optimized flags"
 else # FFLAGS_DEBUG IF
 	FFLAGS=$(FFLAGS_DEBUG)
 	CFLAGS=$(CFLAGS_DEBUG)
+	CXXFLAGS=$(CXXFLAGS_DEBUG)
 	LDFLAGS=$(LDFLAGS_DEBUG)
 	override CPPFLAGS += -DMPAS_DEBUG
 	DEBUG_MESSAGE="Debugging is on."
@@ -285,12 +290,14 @@ endif # FFLAGS_DEBUG IF
 else # DEBUG IF
 	FFLAGS=$(FFLAGS_OPT)
 	CFLAGS=$(CFLAGS_OPT)
+	CXXFLAGS=$(CXXFLAGS_OPT)
 	LDFLAGS=$(LDFLAGS_OPT)
 	DEBUG_MESSAGE="Debugging is off."
 endif # DEBUG IF
 
 FC=$(FC_PARALLEL)
 CC=$(CC_PARALLEL)
+CXXC=$(CXXC_PARALLEL)
 SFC=$(FC_SERIAL)
 SCC=$(CC_SERIAL)
 PARALLEL_MESSAGE="Parallel version is on."
@@ -380,10 +387,12 @@ ifeq "$(AUTOCLEAN)" "true"
 endif
 	cd src; $(MAKE) -j1 FC="$(FC)" \
                  CC="$(CC)" \
+                 CXXC="$(CXXC)" \
                  SFC="$(SFC)" \
                  SCC="$(SCC)" \
                  LINKER="$(LINKER)" \
                  CFLAGS="$(CFLAGS)" \
+                 CXXFLAGS="$(CXXFLAGS)" \
                  FFLAGS="$(FFLAGS)" \
                  LDFLAGS="$(LDFLAGS)" \
                  RM="$(RM)" \
